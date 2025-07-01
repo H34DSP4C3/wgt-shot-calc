@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>WGT Shot Calculator</title>
+  <style>
+    body { font-family: sans-serif; margin: 1em; }
+    h1 { text-align: center; }
+    label { display: block; margin-top: 0.5em; }
+    input, select, button { width: 100%; padding: 0.5em; margin-top: 0.2em; box-sizing: border-box; }
+    .row { display: flex; gap: 0.5em; }
+    .row > * { flex: 1; }
+    #result { margin-top: 1em; padding: 1em; background: #f0f0f0; border-radius: 4px; }
+    button { margin-top: 1em; background: #007acc; color: white; border: none; border-radius: 4px; cursor: pointer; }
+    button:hover { background: #005fa3; }
+  </style>
+</head>
+<body>
+
+  <h1>WGT Shot Calculator</h1>
+
+  <label>
+    Target Distance (yd)
+    <input type="number" id="target" value="150" min="0">
+  </label>
+
+  <div class="row">
+    <label>
+      Wind Speed (mph)
+      <input type="number" id="windSpeed" value="0" min="0">
+    </label>
+    <label>
+      Wind Direction
+      <select id="windDir">
+        <option>None</option>
+        <option>Headwind</option>
+        <option>Tailwind</option>
+        <option>Crosswind</option>
+      </select>
+    </label>
+  </div>
+
+  <label>
+    Elevation Change (ft)
+    <input type="number" id="elev" value="0">
+  </label>
+
+  <label>
+    Lie Condition
+    <select id="lie">
+      <option>Tee</option>
+      <option>Fairway</option>
+      <option>Light Rough</option>
+      <option>Med Rough</option>
+      <option>Heavy Rough</option>
+      <option>Sand</option>
+    </select>
+  </label>
+
+  <button onclick="calculate()">Calculate Shot</button>
+
+  <div id="result"></div>
+
+  <script>
+    // ---- 1. CLUB DATA ----
+    const woods = [
+      { name: "Driver", distances: {100: 323, 95: 311, 90: 292} },
+      { name: "3-Wood", distances: {100: 263, 95: 251, 90: 233} },
+    ];
+
+    const irons = [
+      { name: "3-Iron", distances: { mid:218, "3/4":214, full:215 } },
+      { name: "4-Iron", distances: { mid:201, "3/4":200, full:196 } },
+      { name: "5-Iron", distances: { mid:190, "3/4":186, full:183 } },
+      { name: "6-Iron", distances: { mid:174, "3/4":171, full:171 } },
+      { name: "7-Iron", distances: { mid:161, "3/4":155, full:153 } },
+      { name: "8-Iron", distances: { mid:151, "3/4":146, full:143 } },
+      { name: "9-Iron", distances: { mid:133, "3/4":132, full:128 } },
+      { name: "Pitching Wedge", distances: { mid:119, "3/4":114, full:112 } },
+    ];
+
+    const punchShots = [
+      { name: "64° LW (50 yd)", distances: {100:50, 95:47, 90:42} },
+      { name: "60° LW (68 yd)", distances: {100:69, 95:63, 90:58} },
+      { name: "56° SW (84 yd)", distances: {100:84, 95:77, 90:72} },
+    ];
+
+    // ---- 2. ADJUSTMENT FUNCTIONS ----
+    function elevationAdjustment(feet) {
+      // ~1 yard per 3 feet of elevation
+      return -feet / 3;
+    }
+
+    function windAdjustment(mph, dir) {
+      // 0.5 yd per mph for head/tail; ignore cross
+      if (dir === "Headwind")  return +mph * 0.5;
+      if (dir === "Tailwind")  return -mph * 0.5;
+      return 0;
+    }
+
+    function lieAdjustment(lie) {
+      switch(lie) {
+        case "Tee":         return 0;
+        case "Fairway":     return -2;
+        case "Light Rough": return +3;
+        case "Med Rough":   return +5;
+        case "Heavy Rough": return +8;
+        case "Sand":        return +10;
+        default:            return 0;
+      }
+    }
+
+    // ---- 3. CLUB SELECTION LOGIC ----
+    function findBestClub(adjustedYard) {
+      let best = { club: "", spin: "", yards: 0, power: 0, delta: Infinity };
+
+      function testOption(item, spinKey, yard) {
+        const delta = Math.abs(yard - adjustedYard);
+        if (delta < best.delta) {
+          const power = Math.min(100, Math.round(adjustedYard / yard * 100));
+          best = {
+            club: item.name,
+            spin: spinKey,
+            yards: yard,
+            power,
+            delta
+          };
+        }
+      }
+
+      woods.forEach(w =>
+        [100,95,90].forEach(p => testOption(w, `${p}% spin`, w.distances[p]))
+      );
+
+      irons.forEach(i =>
+        ["mid","3/4","full"].forEach(s => testOption(i, `${s} spin`, i.distances[s]))
+      );
+
+      punchShots.forEach(w =>
+        [100,95,90].forEach(p => testOption(w, `${p}% power`, w.distances[p]))
+      );
+
+      return best;
+    }
+
+    // ---- 4. CALC & UI ----
+    function calculate() {
+      const t  = parseFloat(document.getElementById("target").value) || 0;
+      const wS = parseFloat(document.getElementById("windSpeed").value) || 0;
+      const wD = document.getElementById("windDir").value;
+      const e  = parseFloat(document.getElementById("elev").value) || 0;
+      const lie= document.getElementById("lie").value;
+
+      const adj =
+        t +
+        elevationAdjustment(e) +
+        windAdjustment(wS, wD) +
+        lieAdjustment(lie);
+
+      const best = findBestClub(adj);
+
+      document.getElementById("result").innerHTML = `
+        <p><strong>Adjusted Yardage:</strong> ${adj.toFixed(1)} yd</p>
+        <p><strong>Club & Spin:</strong> ${best.club} <em>(${best.spin})</em></p>
+        <p><strong>Power:</strong> ${best.power}% of full</p>
+      `;
+    }
+  </script>
+
+</body>
+</html>
